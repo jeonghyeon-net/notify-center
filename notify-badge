@@ -1,7 +1,8 @@
 #!/bin/sh
 # 패널(genmon) 알림 버튼: 해결 안 된 알림 개수를 종 아이콘 배지로 출력 (notify-center 에 물어봄)
 
-cache="${XDG_CACHE_HOME:-$HOME/.cache}/notify-center"
+# 아이콘 디자인이 바뀌면 v 번호를 올려서 예전 캐시를 쓰지 않게 함
+cache="${XDG_CACHE_HOME:-$HOME/.cache}/notify-center/v2"
 mkdir -p "$cache"
 
 n=$(busctl --user call org.freedesktop.Notifications /org/freedesktop/Notifications \
@@ -12,21 +13,22 @@ if [ "$n" -eq 0 ]; then label=0; elif [ "$n" -gt 9 ]; then label="9+"; else labe
 svg="$cache/badge-$label.svg"
 
 if [ ! -f "$svg" ]; then
-  bell='<g fill="none" stroke="#ffffff" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+  # 20px 캔버스: 종은 알림 영역 아이콘(16px)과 비슷한 크기, 배지는 오른쪽 위에 겹침
+  bell='<g transform="translate(0 0.7) scale(0.82)" fill="none" stroke="#ffffff" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
     <path d="M11 4.2c-2.9 0-4.9 2.2-4.9 5.1v3.4l-1.6 2.7h13l-1.6-2.7V9.3c0-2.9-2-5.1-4.9-5.1z"/>
     <path d="M9.2 18.1a1.9 1.9 0 0 0 3.6 0"/></g>'
   if [ "$label" = 0 ]; then
     badge=''; op='0.7'
   elif [ "$label" = "9+" ]; then
     op='0.95'
-    badge='<rect x="10.2" y="0.2" width="13.6" height="11.6" rx="5.8" fill="#E53935" stroke="#1c1c1c" stroke-width="1.4"/>
-    <text x="17" y="9.1" text-anchor="middle" font-family="Sans" font-size="8" font-weight="700" fill="#fff">9+</text>'
+    badge='<rect x="9.4" y="0.4" width="10.2" height="9.2" rx="4.6" fill="#E53935" stroke="#1c1c1c" stroke-width="1.2"/>
+    <text x="14.5" y="7.4" text-anchor="middle" font-family="Sans" font-size="6.5" font-weight="700" fill="#fff">9+</text>'
   else
     op='0.95'
-    badge='<circle cx="17.6" cy="6" r="5.8" fill="#E53935" stroke="#1c1c1c" stroke-width="1.4"/>
-    <text x="17.6" y="9.1" text-anchor="middle" font-family="Sans" font-size="8.5" font-weight="700" fill="#fff">'"$label"'</text>'
+    badge='<circle cx="15" cy="5" r="4.6" fill="#E53935" stroke="#1c1c1c" stroke-width="1.2"/>
+    <text x="15" y="7.5" text-anchor="middle" font-family="Sans" font-size="7" font-weight="700" fill="#fff">'"$label"'</text>'
   fi
-  printf '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24"><g opacity="%s">%s</g>%s</svg>\n' \
+  printf '<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 20 20"><g opacity="%s">%s</g>%s</svg>\n' \
     "$op" "$bell" "$badge" > "$svg"
 fi
 

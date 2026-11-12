@@ -1,6 +1,6 @@
 # Maintainer: Jeonghyeon Kim
 pkgname=notify-center
-pkgver=0.1.0
+pkgver=0.1.1
 pkgrel=1
 pkgdesc='Notification server for Xfce (X11) with a persistent, mobile-style notification list'
 arch=('x86_64' 'aarch64')

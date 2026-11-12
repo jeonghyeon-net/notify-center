@@ -28,6 +28,9 @@ server_name() {
         org.freedesktop.Notifications GetServerInformation 2>/dev/null | awk '{print $2}' | tr -d '"'
 }
 have_xfconf() { command -v xfconf-query >/dev/null 2>&1; }
+# 백그라운드 프로그램은 홈 폴더에서 띄움. 작업 폴더는 자식에게 물려지므로, 그대로 띄우면
+# 패널에서 연 터미널 등이 이 스크립트를 실행한 폴더(예: 소스 폴더)에서 열림
+launch() { (cd "$HOME" 2>/dev/null || cd /; setsid -f "$@" >/dev/null 2>&1); }
 
 # ---------- 패널 (xfce4-panel) ----------
 
@@ -55,7 +58,7 @@ with_panel_stopped() {
         while panel_running && [ $i -lt 50 ]; do sleep 0.1; i=$((i + 1)); done
     fi
     "$@"
-    [ $was_running = 0 ] || setsid -f xfce4-panel >/dev/null 2>&1
+    [ $was_running = 0 ] || launch xfce4-panel
 }
 
 apply_add() {
@@ -161,7 +164,7 @@ enable() {
         systemctl --user stop xfce4-notifyd.service dunst.service >/dev/null 2>&1 || true
         pid=$(bus GetConnectionUnixProcessID s org.freedesktop.Notifications | awk '{print $2}')
         if [ -n "$pid" ]; then kill "$pid" 2>/dev/null || true; sleep 0.5; fi # 남아 있는 다른 알림 서버
-        setsid -f "$BINDIR/notify-center" >/dev/null 2>&1 || true
+        launch "$BINDIR/notify-center" || true
         say "notify-center: 시작함"
     fi
 

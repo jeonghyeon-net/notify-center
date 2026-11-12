@@ -1,6 +1,0 @@
-[Desktop Entry]
-Type=Application
-Name=notify-center
-Comment=알림 서버 + 팝업 + 패널 종 버튼 알림 창
-Exec=@BINDIR@/notify-center
-OnlyShowIn=XFCE;

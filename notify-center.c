@@ -72,6 +72,7 @@ static const char *INTROSPECTION =
     " <interface name='local.notify.Center'>"
     "  <method name='Toggle'/>"
     "  <method name='Count'><arg direction='out' type='u'/></method>"
+    "  <method name='Quit'/>"
     " </interface>"
     "</node>";
 
@@ -871,6 +872,9 @@ static void on_method(GDBusConnection *c, const char *sender, const char *path, 
         center_toggle();
     } else if (strcmp(method, "Count") == 0) {
         g_dbus_method_invocation_return_value(inv, g_variant_new("(u)", count_unresolved()));
+    } else if (strcmp(method, "Quit") == 0) { /* notify-center-setup --remove 에서 사용 */
+        g_dbus_method_invocation_return_value(inv, NULL);
+        gtk_main_quit();
     } else {
         g_dbus_method_invocation_return_dbus_error(inv, "org.freedesktop.DBus.Error.UnknownMethod", method);
     }

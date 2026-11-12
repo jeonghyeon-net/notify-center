@@ -1,1 +1,5 @@
 /notify-center
+/notify-center-src/
+/src/
+/pkg/
+*.pkg.tar.*

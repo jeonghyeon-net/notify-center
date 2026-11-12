@@ -1,0 +1,196 @@
+#!/bin/sh
+# notify-center-setup — 현재 사용자 계정에서 notify-center 켜기/끄기 (Xfce)
+#
+#   notify-center-setup           켜기: 기존 알림 서버 대신 사용, 패널 종 버튼·Super+N 단축키 추가
+#   notify-center-setup --remove  끄기: 원래 알림 서버(xfce4-notifyd)로 되돌림
+#
+# 모든 변경은 이 사용자 계정 안에서만 이뤄짐 (시스템 파일은 건드리지 않음).
+set -eu
+
+BINDIR=$(cd "$(dirname "$0")" && pwd)
+CONFIG=${XDG_CONFIG_HOME:-$HOME/.config}
+DATA=${XDG_DATA_HOME:-$HOME/.local/share}
+SERVICE=$DATA/dbus-1/services/org.freedesktop.Notifications.service
+AUTOSTART=$CONFIG/autostart
+BADGE=$BINDIR/notify-badge
+KEY='/commands/custom/<Super>n'
+TOGGLE='busctl --user call org.freedesktop.Notifications /org/freedesktop/Notifications local.notify.Center Toggle'
+NOTIFYD_OFF='[Desktop Entry]
+Type=Application
+Name=Xfce Notification Daemon
+Hidden=true'
+
+say() { printf '%s\n' "$*"; }
+bus() { busctl --user --auto-start=no call org.freedesktop.DBus /org/freedesktop/DBus org.freedesktop.DBus "$@" 2>/dev/null; }
+has_owner() { [ "$(bus NameHasOwner s "$1")" = "b true" ]; }
+server_name() {
+    busctl --user --auto-start=no call org.freedesktop.Notifications /org/freedesktop/Notifications \
+        org.freedesktop.Notifications GetServerInformation 2>/dev/null | awk '{print $2}' | tr -d '"'
+}
+have_xfconf() { command -v xfconf-query >/dev/null 2>&1; }
+
+# ---------- 패널 (xfce4-panel) ----------
+
+xq() { xfconf-query -c xfce4-panel "$@"; }
+xget() { xfconf-query -c xfce4-panel -p "$1" 2>/dev/null || true; } # 없으면 빈 값
+ints() { LC_ALL=C xfconf-query -c xfce4-panel -p "$1" 2>/dev/null | grep -E '^[0-9]+$' || true; }
+plugin_ids() { xq -l 2>/dev/null | sed -nE 's|^/plugins/plugin-([0-9]+)$|\1|p'; }
+
+our_plugin() { # 이미 추가된 종 버튼(genmon + notify-badge)의 번호
+    for p in $(plugin_ids); do
+        [ "$(xget "/plugins/plugin-$p")" = genmon ] || continue
+        case "$(xget "/plugins/plugin-$p/command")" in *notify-badge) echo "$p"; return ;; esac
+    done
+}
+
+panel_running() { has_owner org.xfce.Panel; }
+
+with_panel_stopped() {
+    # 실행 중인 패널은 설정을 메모리에 들고 있다가 재시작할 때 덮어씀 → 끈 상태에서 바꾸고 다시 켬
+    was_running=0
+    if panel_running; then
+        was_running=1
+        xfce4-panel -q
+        i=0
+        while panel_running && [ $i -lt 50 ]; do sleep 0.1; i=$((i + 1)); done
+    fi
+    "$@"
+    [ $was_running = 0 ] || setsid -f xfce4-panel >/dev/null 2>&1
+}
+
+apply_add() {
+    id=$1 panel=$2; shift 2
+    xq -p "/plugins/plugin-$id" -n -t string -s genmon
+    xq -p "/plugins/plugin-$id/command" -n -t string -s "$BADGE"
+    xq -p "/plugins/plugin-$id/use-label" -n -t bool -s false
+    xq -p "/plugins/plugin-$id/update-period" -n -t int -s 60000
+    xq -p "/panels/panel-$panel/plugin-ids" -n --force-array "$@"
+}
+
+add_panel_button() {
+    if [ -n "$(our_plugin)" ]; then say "패널 종 버튼: 이미 있음"; return; fi
+    genmon=""
+    for f in /usr/lib/xfce4/panel/plugins/libgenmon.so /usr/lib/*/xfce4/panel/plugins/libgenmon.so; do
+        [ -e "$f" ] && genmon=$f
+    done
+    if [ -z "$genmon" ]; then say "패널 종 버튼: xfce4-genmon-plugin 이 없어 건너뜀"; return; fi
+    # 대상 패널: 알림 영역(systray)이 있는 패널, 없으면 첫 패널
+    panel=""
+    for n in $(ints /panels); do
+        for p in $(ints "/panels/panel-$n/plugin-ids"); do
+            case "$(xget "/plugins/plugin-$p")" in systray | statusnotifier) panel=$n ;; esac
+        done
+        [ -z "$panel" ] || break
+    done
+    [ -n "$panel" ] || panel=$(ints /panels | head -n 1)
+    if [ -z "$panel" ]; then say "패널 종 버튼: 패널을 찾지 못해 건너뜀"; return; fi
+
+    max=$(plugin_ids | sort -n | tail -n 1)
+    id=$((${max:-0} + 1))
+    set --
+    placed=0
+    for p in $(ints "/panels/panel-$panel/plugin-ids"); do # 시계 바로 왼쪽에 (시계가 없으면 맨 끝)
+        if [ $placed = 0 ] && [ "$(xget "/plugins/plugin-$p")" = clock ]; then
+            set -- "$@" -t int -s "$id"; placed=1
+        fi
+        set -- "$@" -t int -s "$p"
+    done
+    [ $placed = 1 ] || set -- "$@" -t int -s "$id"
+    with_panel_stopped apply_add "$id" "$panel" "$@"
+    say "패널 종 버튼: 추가함"
+}
+
+apply_remove() {
+    id=$1 panel=$2; shift 2
+    if [ $# -gt 0 ]; then
+        xq -p "/panels/panel-$panel/plugin-ids" --force-array "$@"
+    else
+        xq -p "/panels/panel-$panel/plugin-ids" -r
+    fi
+    xq -p "/plugins/plugin-$id" -R -r
+}
+
+remove_panel_button() {
+    id=$(our_plugin)
+    [ -n "$id" ] || return 0
+    for n in $(ints /panels); do
+        ids=$(ints "/panels/panel-$n/plugin-ids")
+        printf '%s\n' "$ids" | grep -qx "$id" || continue
+        set --
+        for p in $ids; do [ "$p" = "$id" ] || set -- "$@" -t int -s "$p"; done
+        with_panel_stopped apply_remove "$id" "$n" "$@"
+    done
+    say "패널 종 버튼: 제거함"
+}
+
+# ---------- 단축키 ----------
+
+add_shortcut() {
+    cur=$(xfconf-query -c xfce4-keyboard-shortcuts -p "$KEY" 2>/dev/null || true)
+    if [ -z "$cur" ]; then
+        xfconf-query -c xfce4-keyboard-shortcuts -p "$KEY" -n -t string -s "$TOGGLE"
+        say "단축키: Super+N 등록"
+    elif [ "$cur" = "$TOGGLE" ]; then
+        say "단축키: 이미 있음"
+    else
+        say "단축키: Super+N 이 다른 명령에 쓰이고 있어 건너뜀 (README 참고해 직접 등록)"
+    fi
+}
+
+remove_shortcut() {
+    if [ "$(xfconf-query -c xfce4-keyboard-shortcuts -p "$KEY" 2>/dev/null || true)" = "$TOGGLE" ]; then
+        xfconf-query -c xfce4-keyboard-shortcuts -p "$KEY" -r
+        say "단축키: 제거함"
+    fi
+}
+
+# ---------- 켜기 / 끄기 ----------
+
+enable() {
+    mkdir -p "$(dirname "$SERVICE")" "$AUTOSTART"
+    printf '[D-BUS Service]\nName=org.freedesktop.Notifications\nExec=%s/notify-center\n' "$BINDIR" >"$SERVICE"
+    printf '[Desktop Entry]\nType=Application\nName=notify-center\nExec=%s/notify-center\nOnlyShowIn=XFCE;\n' \
+        "$BINDIR" >"$AUTOSTART/notify-center.desktop"
+    printf '%s\n' "$NOTIFYD_OFF" >"$AUTOSTART/xfce4-notifyd.desktop"
+    bus ReloadConfig >/dev/null || true
+    say "알림 서버 연결: 완료 (다음 로그인부터 자동 실행)"
+
+    if [ "$(server_name)" = notify-center ]; then
+        say "notify-center: 이미 실행 중"
+    else
+        systemctl --user stop xfce4-notifyd.service dunst.service >/dev/null 2>&1 || true
+        pid=$(bus GetConnectionUnixProcessID s org.freedesktop.Notifications | awk '{print $2}')
+        if [ -n "$pid" ]; then kill "$pid" 2>/dev/null || true; sleep 0.5; fi # 남아 있는 다른 알림 서버
+        setsid -f "$BINDIR/notify-center" >/dev/null 2>&1 || true
+        say "notify-center: 시작함"
+    fi
+
+    if have_xfconf; then
+        add_panel_button
+        add_shortcut
+    else
+        say "xfconf-query 가 없어 패널 버튼·단축키는 건너뜀"
+    fi
+}
+
+disable() {
+    if have_xfconf; then
+        remove_shortcut
+        remove_panel_button
+    fi
+    rm -f "$SERVICE" "$AUTOSTART/notify-center.desktop"
+    if [ "$(cat "$AUTOSTART/xfce4-notifyd.desktop" 2>/dev/null || true)" = "$NOTIFYD_OFF" ]; then
+        rm -f "$AUTOSTART/xfce4-notifyd.desktop"
+    fi
+    bus ReloadConfig >/dev/null || true
+    busctl --user --auto-start=no call org.freedesktop.Notifications /org/freedesktop/Notifications \
+        local.notify.Center Quit >/dev/null 2>&1 || true
+    say "notify-center 를 껐습니다. 다음 알림부터 원래 알림 서버(xfce4-notifyd)가 처리합니다."
+}
+
+case "${1:-}" in
+    "") enable ;;
+    --remove) disable ;;
+    -h | --help) sed -n '2,7p' "$0" | sed 's/^# \{0,1\}//' ;;
+    *) say "알 수 없는 옵션: $1 (--help 참고)"; exit 2 ;;
+esac

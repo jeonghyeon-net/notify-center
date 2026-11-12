@@ -1,0 +1,12 @@
+post_install() {
+  echo '==> 사용할 계정에서 한 번 실행하세요: notify-center-setup'
+  echo '    (원래대로 되돌리기: notify-center-setup --remove)'
+}
+
+post_upgrade() {
+  echo '==> 새 버전은 다음 로그인부터 적용됩니다.'
+}
+
+pre_remove() {
+  echo '==> 지우기 전에 각 계정에서 notify-center-setup --remove 를 실행하세요.'
+}

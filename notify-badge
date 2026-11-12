@@ -1,0 +1,35 @@
+#!/bin/sh
+# 패널(genmon) 알림 버튼: 해결 안 된 알림 개수를 종 아이콘 배지로 출력 (notify-center 에 물어봄)
+
+cache="${XDG_CACHE_HOME:-$HOME/.cache}/notify-center"
+mkdir -p "$cache"
+
+n=$(busctl --user call org.freedesktop.Notifications /org/freedesktop/Notifications \
+      local.notify.Center Count 2>/dev/null | awk '{print $2 + 0}')
+n=${n:-0}
+
+if [ "$n" -eq 0 ]; then label=0; elif [ "$n" -gt 9 ]; then label="9+"; else label=$n; fi
+svg="$cache/badge-$label.svg"
+
+if [ ! -f "$svg" ]; then
+  bell='<g fill="none" stroke="#ffffff" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M11 4.2c-2.9 0-4.9 2.2-4.9 5.1v3.4l-1.6 2.7h13l-1.6-2.7V9.3c0-2.9-2-5.1-4.9-5.1z"/>
+    <path d="M9.2 18.1a1.9 1.9 0 0 0 3.6 0"/></g>'
+  if [ "$label" = 0 ]; then
+    badge=''; op='0.7'
+  elif [ "$label" = "9+" ]; then
+    op='0.95'
+    badge='<rect x="10.2" y="0.2" width="13.6" height="11.6" rx="5.8" fill="#E53935" stroke="#1c1c1c" stroke-width="1.4"/>
+    <text x="17" y="9.1" text-anchor="middle" font-family="Sans" font-size="8" font-weight="700" fill="#fff">9+</text>'
+  else
+    op='0.95'
+    badge='<circle cx="17.6" cy="6" r="5.8" fill="#E53935" stroke="#1c1c1c" stroke-width="1.4"/>
+    <text x="17.6" y="9.1" text-anchor="middle" font-family="Sans" font-size="8.5" font-weight="700" fill="#fff">'"$label"'</text>'
+  fi
+  printf '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24"><g opacity="%s">%s</g>%s</svg>\n' \
+    "$op" "$bell" "$badge" > "$svg"
+fi
+
+if [ "$n" -eq 0 ]; then tip="새 알림 없음"; else tip="알림 ${n}개"; fi
+click="busctl --user call org.freedesktop.Notifications /org/freedesktop/Notifications local.notify.Center Toggle"
+printf '<img>%s</img><click>%s</click><tool>%s</tool>\n' "$svg" "$click" "$tip"
